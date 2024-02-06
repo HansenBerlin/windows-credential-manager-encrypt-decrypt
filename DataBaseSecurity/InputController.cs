@@ -2,31 +2,93 @@ namespace DataBaseSecurity;
 
 public class InputController
 {
-    private EncryptDecrypt _encryptDecrypt;
+    private readonly Encryptor _encryptor;
+    private readonly Decryptor _decryptor;
+    private readonly KdfCreator _kdfCreator;
+    private const string CredentialManagerKey = "SVO-DB-USER";
+    private const string DefaultAdminUserName = "ADMIN";
 
-    public InputController(EncryptDecrypt encryptDecrypt)
+    public InputController(Encryptor encryptor, Decryptor decryptor, KdfCreator kdfCreator)
     {
-        _encryptDecrypt = encryptDecrypt;
+        _encryptor = encryptor;
+        _kdfCreator = kdfCreator;
+        _decryptor = decryptor;
     }
 
-    public void Get(string credManagerKey)
+    public void PrintDbPassword()
     {
-        Console.Write("Enter your password: ");
+        Console.Write("Username: ");
+        var userName = Console.ReadLine();
+        Console.Write("Password: ");
         var userPassword = Console.ReadLine();
-        var encryptionKey = _encryptDecrypt.DeriveKeyFromPassword(userPassword ?? throw new ArgumentNullException(userPassword));
-        var encryptedDbPassword = _encryptDecrypt.RetrieveKeyFromCredentialManager(credManagerKey);
-        var decryptedDbPassword = _encryptDecrypt.Decrypt(encryptedDbPassword ?? throw new ArgumentNullException(encryptedDbPassword), encryptionKey);
+        if (string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(userPassword))
+        {
+            Console.WriteLine("Input cannot be empty");
+            return;
+        }
+        var encryptionKey = _kdfCreator.DeriveKeyFromPassword(userPassword);
+        var credManagerKey = CreateCredentialManagerKey(userName);
+        var encryptedDbPassword = _decryptor.RetrieveKeyFromCredentialManager(credManagerKey);
+        var decryptedDbPassword = _decryptor.Decrypt(encryptedDbPassword, encryptionKey);
         Console.WriteLine($"Decrypted Database Password: {decryptedDbPassword}");
     }
 
-    public void Set(string credManagerKey)
+    public void InitialSetup()
     {
-        Console.Write("Enter your password: ");
-        var userPassword = Console.ReadLine();
-        var encryptionKey = _encryptDecrypt.DeriveKeyFromPassword(userPassword ?? throw new ArgumentNullException(userPassword));
+        Console.Write("Admin password: ");
+        var adminPassword = Console.ReadLine();
         Console.Write("Enter your database password: ");
         var dbPassword = Console.ReadLine();
-        var encryptedDbPassword = _encryptDecrypt.Encrypt(dbPassword ?? throw new ArgumentNullException(dbPassword), encryptionKey);
-        _encryptDecrypt.StoreKeyInCredentialManager(credManagerKey, encryptedDbPassword);
+        if (string.IsNullOrEmpty(adminPassword) || string.IsNullOrEmpty(dbPassword))
+        {
+            Console.WriteLine("Password cannot be empty");
+            return;
+        }
+        SaveInCredManagerFromMasterSecret(adminPassword, dbPassword);
+        Console.WriteLine("Database password encrypted and saved successfully");
+    }
+    
+    public void NewUserSetup()
+    {
+        Console.Write("Admin password: ");
+        var adminPassword = Console.ReadLine();
+        Console.Write("New user name: ");
+        var userName = Console.ReadLine();
+        Console.Write("New user password: ");
+        var userPassword = Console.ReadLine();
+        
+        if (string.IsNullOrEmpty(adminPassword) || string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(userPassword))
+        {
+            Console.WriteLine("Input cannot be empty");
+            return;
+        }
+        SaveInCredManagerForNewUser(userName, userPassword, adminPassword);
+        Console.WriteLine("Database password for new user encrypted and saved successfully");
+    }
+    
+    private void SaveInCredManagerFromMasterSecret(string adminUserPassword, string dbPassword)
+    {
+        var encryptionKey = _kdfCreator.DeriveKeyFromPassword(adminUserPassword);
+        var encryptedDbPassword = _encryptor.Encrypt(dbPassword, encryptionKey);
+        var credManagerKey = CreateCredentialManagerKey(DefaultAdminUserName);
+        _encryptor.StoreKeyInCredentialManager(credManagerKey, encryptedDbPassword);
+    }
+    
+    private void SaveInCredManagerForNewUser(string userName, string userPassword, string adminUserPassword)
+    {
+        var encryptionKeyAdmin = _kdfCreator.DeriveKeyFromPassword(adminUserPassword);
+        var credManagerKeyAdmin = CreateCredentialManagerKey(DefaultAdminUserName);
+        var encryptedDbPassword = _decryptor.RetrieveKeyFromCredentialManager(credManagerKeyAdmin);
+        var decryptedDbPassword = _decryptor.Decrypt(encryptedDbPassword, encryptionKeyAdmin);
+        
+        var encryptionKeyUser = _kdfCreator.DeriveKeyFromPassword(userPassword);
+        var encryptedDbPasswordUser = _encryptor.Encrypt(decryptedDbPassword, encryptionKeyUser);
+        var credManagerKey = CreateCredentialManagerKey(userName);
+        _encryptor.StoreKeyInCredentialManager(credManagerKey, encryptedDbPasswordUser);
+    }
+    
+    private string CreateCredentialManagerKey(string userName)
+    {
+        return $"{CredentialManagerKey}-{userName.ToUpper()}";
     }
 }
