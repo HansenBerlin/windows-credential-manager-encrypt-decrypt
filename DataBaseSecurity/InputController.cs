@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace DataBaseSecurity;
 
 public class InputController
@@ -5,7 +7,7 @@ public class InputController
     private readonly Encryptor _encryptor;
     private readonly Decryptor _decryptor;
     private readonly KdfCreator _kdfCreator;
-    private const string CredentialManagerKey = "SVO-DB-USER";
+    private const string CredentialManagerKey = "SOME-APP-DB-USER";
     private const string DefaultAdminUserName = "ADMIN";
 
     public InputController(Encryptor encryptor, Decryptor decryptor, KdfCreator kdfCreator)
@@ -15,55 +17,78 @@ public class InputController
         _decryptor = decryptor;
     }
 
+    private string PasswordInput()
+    {
+        var pw = new StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(true);
+           
+            if ((int) key.Key >= 65 && (int) key.Key <= 90) 
+            {
+                pw.Append(key.KeyChar);
+                Console.Write("*");
+            }   
+            else switch (key.Key)
+            {
+                case ConsoleKey.Backspace when pw.Length > 0:
+                    pw.Remove(pw.Length - 1, 1);
+                    Console.Write("\b \b");
+                    break;
+                case ConsoleKey.Enter when pw.Length >= 8:
+                    return pw.ToString();
+                case ConsoleKey.Enter:
+                    pw.Clear();
+                    Console.WriteLine("\nPassword must be at least 8 characters long. Retry!");
+                    break;
+            }
+        }
+        
+        return pw.ToString();
+    }
+
     public void PrintDbPassword()
     {
-        Console.Write("Username: ");
+        Console.WriteLine("Enter username (leave empty for admin): ");
         var userName = Console.ReadLine();
-        Console.Write("Password: ");
-        var userPassword = Console.ReadLine();
-        if (string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(userPassword))
-        {
-            Console.WriteLine("Input cannot be empty");
-            return;
-        }
+        Console.WriteLine("Enter password: ");
+        var userPassword = PasswordInput();
+        userName = string.IsNullOrEmpty(userName) ? DefaultAdminUserName : userName;
+        
         var encryptionKey = _kdfCreator.DeriveKeyFromPassword(userPassword);
         var credManagerKey = CreateCredentialManagerKey(userName);
         var encryptedDbPassword = _decryptor.RetrieveKeyFromCredentialManager(credManagerKey);
         var decryptedDbPassword = _decryptor.Decrypt(encryptedDbPassword, encryptionKey);
-        Console.WriteLine($"Decrypted Database Password: {decryptedDbPassword}");
+        Console.WriteLine($"\nDecrypted database password: {decryptedDbPassword}");
     }
 
     public void InitialSetup()
     {
-        Console.Write("Admin password: ");
-        var adminPassword = Console.ReadLine();
-        Console.Write("Enter your database password: ");
-        var dbPassword = Console.ReadLine();
-        if (string.IsNullOrEmpty(adminPassword) || string.IsNullOrEmpty(dbPassword))
-        {
-            Console.WriteLine("Password cannot be empty");
-            return;
-        }
+        Console.WriteLine("Choose admin password: ");
+        var adminPassword = PasswordInput();
+        Console.WriteLine("\nEnter database password: ");
+        var dbPassword = PasswordInput();
+        
         SaveInCredManagerFromMasterSecret(adminPassword, dbPassword);
-        Console.WriteLine("Database password encrypted and saved successfully");
+        Console.WriteLine("\nDatabase password encrypted and saved successfully");
     }
     
     public void NewUserSetup()
     {
-        Console.Write("Admin password: ");
-        var adminPassword = Console.ReadLine();
-        Console.Write("New user name: ");
+        Console.WriteLine("Enter admin password: ");
+        var adminPassword = PasswordInput();
+        Console.WriteLine("\nChoose new users name: ");
         var userName = Console.ReadLine();
-        Console.Write("New user password: ");
-        var userPassword = Console.ReadLine();
-        
-        if (string.IsNullOrEmpty(adminPassword) || string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(userPassword))
+        if (string.IsNullOrWhiteSpace(userName))
         {
-            Console.WriteLine("Input cannot be empty");
+            Console.WriteLine("Invalid user name");
             return;
         }
+        Console.WriteLine("Choose new users password: ");
+        var userPassword = PasswordInput();
+        
         SaveInCredManagerForNewUser(userName, userPassword, adminPassword);
-        Console.WriteLine("Database password for new user encrypted and saved successfully");
+        Console.WriteLine("\nDatabase password for new user encrypted and saved successfully");
     }
     
     private void SaveInCredManagerFromMasterSecret(string adminUserPassword, string dbPassword)
